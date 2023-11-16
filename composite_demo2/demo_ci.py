@@ -14,16 +14,18 @@ from streamlit.delta_generator import DeltaGenerator
 from client import get_client
 from conversation import postprocess_text, preprocess_text, Conversation, Role
 
-IPYKERNEL = os.environ.get('IPYKERNEL', 'chatglm3-demo2')
+IPYKERNEL = os.environ.get('IPYKERNEL', 'chatglm3-demo')
 
 SYSTEM_PROMPT = '你是一位智能AI助手，你叫ChatGLM，你连接着一台电脑，但请注意不能联网。在使用Python解决任务时，你可以运行代码并得到结果，如果运行结果有错误，你需要尽可能对代码进行改进。你可以处理用户上传到电脑上的文件，文件默认存储路径是/mnt/data/。'
-SYSTEM_PROMPT = '你是一位智能AI助手，你叫ChatGLM，你连接着一台电脑，并且可以联网。在使用Python解决任务时，你可以运行代码并得到结果，如果运行结果有错误，你需要尽可能对代码进行改进。如果有相关的包没有安装，你可以安装。你可以处理用户上传到电脑上的文件，文件默认存储路径是/mnt/data/。'
 
 MAX_LENGTH = 8192
 TRUNCATE_LENGTH = 1024
 
 client = get_client()
-
+"""
+安装Jupyter 内核
+ipython kernel install --name chatglm3-demo --user
+"""
 class CodeKernel(object):
     def __init__(self,
                  kernel_name='kernel',
@@ -204,8 +206,10 @@ def get_kernel():
     return kernel
 
 def extract_code(text: str) -> str:
+    # text： "interpreter\n ```python\nimport matplotlib.pyplot as plt\nimport numpy as np\n\n# Define the heart shape\nx = np.linspace(-1, 1, 100)\ny = np.linspace(-1, 1, 100)\nX, Y = np.meshgrid(x, y)\n\n# Calculate the coordinates of the heart shape\nheart_x = 0.5 * (X + 1)\nheart_y = 0.5 * (Y + 1)\n\n# Plot the heart shape\nplt.figure(figsize=(6,6))\nplt.plot(heart_x, heart_y, color='red', linewidth=2)\nplt.axis('off')\nplt.title('Heart Shape')\nplt.xlabel('X')\nplt.ylabel('Y')\nplt.grid(True)\nplt.show()\n```\n"
     pattern = r'```([^\n]*)\n(.*?)```'
     matches = re.findall(pattern, text, re.DOTALL)
+    # 最后的输出"import matplotlib.pyplot as plt\nimport numpy as np\n\n# Define the heart shape\nx = np.linspace(-1, 1, 100)\ny = np.linspace(-1, 1, 100)\nX, Y = np.meshgrid(x, y)\n\n# Calculate the coordinates of the heart shape\nheart_x = 0.5 * (X + 1)\nheart_y = 0.5 * (Y + 1)\n\n# Plot the heart shape\nplt.figure(figsize=(6,6))\nplt.plot(heart_x, heart_y, color='red', linewidth=2)\nplt.axis('off')\nplt.title('Heart Shape')\nplt.xlabel('X')\nplt.ylabel('Y')\nplt.grid(True)\nplt.show()\n"
     return matches[-1][1]
 
 # Append a conversation into history, while show it in a new markdown block
@@ -271,6 +275,8 @@ def main(top_p: float, temperature: float, prompt_text: str):
                             return
                         # Initiate tool call
                         case '<|assistant|>':
+                            # 把ASSISTANT的内容加载history中
+                            # Conversation(role=<Role.INTERPRETER: 5>, content="```python\nimport matplotlib.pyplot as plt\nimport numpy as np\n\n# Define the heart shape\nx = np.linspace(-1, 1, 100)\ny = np.linspace(-1, 1, 100)\nX, Y = np.meshgrid(x, y)\n\n# Calculate the coordinates of the heart shape\nheart_x = 0.5 * (X + 1)\nheart_y = 0.5 * (Y + 1)\n\n# Plot the heart shape\nplt.figure(figsize=(6,6))\nplt.plot(heart_x, heart_y, color='red', linewidth=2)\nplt.axis('off')\nplt.title('Heart Shape')\nplt.xlabel('X')\nplt.ylabel('Y')\nplt.grid(True)\nplt.show()\n```", tool=None, image=None)
                             append_conversation(Conversation(
                                 Role.ASSISTANT,
                                 postprocess_text(output_text),
@@ -318,6 +324,9 @@ def main(top_p: float, temperature: float, prompt_text: str):
                             st.error(f'Unexpected special token: {token.text.strip()}')
                             break
                 output_text += response.token.text
+                # 注意，interpreter是通过llm蹦出来的，而且是先蹦出interpre token，再蹦出ter token，然后再继续蹦出代码，代码蹦完之后
+                # 就会蹦出<|observation|> token
+                # tokenizer的speccial_tokens没有<|interpreter|> {64789: '[MASK]', 64790: '[gMASK]', 64791: '[sMASK]', 64792: 'sop', 64793: 'eop', 64794: '<|system|>', 64795: '<|user|>', 64796: '<|assistant|>', 64797: '<|observation|>'}
                 display_text = output_text.split('interpreter')[-1].strip()
                 markdown_placeholder.markdown(postprocess_text(display_text + '▌'))
             else:

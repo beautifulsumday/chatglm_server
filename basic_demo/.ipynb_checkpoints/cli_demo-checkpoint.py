@@ -3,7 +3,6 @@ import platform
 from transformers import AutoTokenizer, AutoModel
 
 model_path = "THUDM/chatglm3-6b"
-model_path = "/root/autodl-tmp/model/model/"
 tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
 model = AutoModel.from_pretrained(model_path, trust_remote_code=True).cuda()
 # 多显卡支持，使用下面两行代替上面一行，将num_gpus改为你实际的显卡数量
@@ -29,7 +28,7 @@ def main():
     global stop_stream
     print(welcome_prompt)
     while True:
-        query = input("\n用户：") # 有什么功能,能为我做什么
+        query = input("\n用户：")
         if query.strip() == "stop":
             break
         if query.strip() == "clear":
