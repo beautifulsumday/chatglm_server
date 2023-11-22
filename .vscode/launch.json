@@ -15,17 +15,29 @@
     //         "justMyCode": true
     //     }
     // ]
+    // "configurations": [
+    //     {
+    //         "name": "Python: streamlit",
+    //         "type": "python",
+    //         "request": "launch",
+    //         "python": "/root/miniconda3/envs/py310_chat/bin/python",
+    //         "cwd": "/root/ChatGLM3/composite_demo",
+    //         "module": "streamlit",
+    //         // "program": "/root/ChatGLM3/composite_demo/main.py",
+    //         "console": "integratedTerminal",
+    //         "args": ["run", "/root/ChatGLM3/composite_demo/main.py", "--server.port", "6006", "--server.headless=true", "--server.enableCORS=false"],
+    //         "justMyCode": true
+    //     }
+    // ]
     "configurations": [
         {
-            "name": "Python: streamlit",
+            "name": "Python: server.py",
             "type": "python",
             "request": "launch",
             "python": "/root/miniconda3/envs/py310_chat/bin/python",
-            "cwd": "/root/ChatGLM3/composite_demo",
-            "module": "streamlit",
-            // "program": "/root/ChatGLM3/composite_demo/main.py",
+            "cwd": "/root/ChatGLM3/flask_server",
+            "program": "/root/ChatGLM3/flask_server/server.py",
             "console": "integratedTerminal",
-            "args": ["run", "/root/ChatGLM3/composite_demo/main.py", "--server.port", "6006", "--server.headless=true", "--server.enableCORS=false"],
             "justMyCode": true
         }
     ]

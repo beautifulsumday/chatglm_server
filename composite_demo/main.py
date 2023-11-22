@@ -44,7 +44,6 @@ tab = st.radio(
     horizontal=True,
     label_visibility='hidden',
 )
-
 match tab:
     case Mode.CHAT:
         demo_chat.main(top_p, temperature, system_prompt, prompt_text)
