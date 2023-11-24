@@ -25,6 +25,9 @@ def stream_code(url, data):
             if line:
                 if line.startswith("<|history|>"):
                     history =  line.split("<|history|>")[-1]
+                    print("开始打印history")
+                    print(history)
+                    print("结束打印history")
                     history = json.loads(history)
                     # return
                 elif line == "<|user|>":
@@ -96,7 +99,7 @@ if __name__ == '__main__':
     # stream_url = 'http://127.0.0.1:50001/stream/chat'
     # test_chat(stream_url)
 
-    stream_url = 'http://127.0.0.1:50001/stream/interpreter2'
+    stream_url = 'http://127.0.0.1:6006/stream/interpreter2'
     # test_chat(stream_url)
 
     history = [{"role": "<|user|>", "content": "I uploaded the file and put it in /root/ChatGLM3/test.xlsx"}]
