@@ -94,19 +94,19 @@ def test_chat(url):
                 # print(line.decode('utf-8'))
 
 if __name__ == '__main__':
-    # stream_url = 'http://127.0.0.1:5000/stream'
-    # stream_data(stream_url)
+    stream_url = 'http://127.0.0.1:5000/stream'
+    stream_data(stream_url)
     # stream_url = 'http://127.0.0.1:50001/stream/chat'
     # test_chat(stream_url)
 
-    stream_url = 'http://127.0.0.1:6006/stream/interpreter2'
-    # test_chat(stream_url)
+    # stream_url = 'http://127.0.0.1:6006/stream/interpreter2'
+    # # test_chat(stream_url)
 
-    history = [{"role": "<|user|>", "content": "I uploaded the file and put it in /root/ChatGLM3/test.xlsx"}]
-    data = {
-        "query": "对该文件进行数据分析，至少可视化三个分析图案",
-        "history": history,
-    }
+    # history = [{"role": "<|user|>", "content": "I uploaded the file and put it in /root/ChatGLM3/test.xlsx"}]
+    # data = {
+    #     "query": "对该文件进行数据分析，至少可视化三个分析图案",
+    #     "history": history,
+    # }
 
-    stream_code(stream_url, data)
+    # stream_code(stream_url, data)
 

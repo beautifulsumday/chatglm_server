@@ -14,7 +14,7 @@ import time
 import os
 
 # SYSTEM_PROMPT = '你是一位智能AI助手，你叫ChatGLM，你连接着一台电脑，但请注意不能联网。在使用Python解决任务时，你可以运行代码并得到结果，如果运行结果有错误，你需要尽可能对代码进行改进。你可以处理用户上传到电脑上的文件，文件默认存储路径是/mnt/data/。'
-SYSTEM_PROMPT = '你是一位智能AI助手，你叫ChatGLM，你连接着一台电脑，但请注意不能联网。在使用Python解决任务时，你可以准确的生成Python代码，并通过用户的运行结果进行下一步分析，如果返回运行结果有错误，你需要尽可能对代码进行改进，以完成用户的任务。'
+SYSTEM_PROMPT = '你是一位智能AI助手，你叫DataGLM，你连接着用户的电脑，并且能访问本地文件！在使用Python解决用户的任务时，你可以准确的生成Python代码，当用户让你处理本地文件时，你能给用户提供准确代码并通过用户的代码运行结果进行下一步分析，如果返回运行结果有错误，你需要尽可能对代码进行改进，以完成用户的任务。'
 # SYSTEM_PROMPT = '你是一位智能AI助手，你叫ChatGLM，你连接着一台电脑，并且可以联网。在使用Python解决任务时，你可以运行代码并得到结果，如果运行结果有错误，你需要尽可能对代码进行改进。如果有相关的包没有安装，你可以安装。你可以处理用户上传到电脑上的文件，文件默认存储路径是/mnt/data/。'
 TOOL_PROMPT = 'Answer the following questions as best as you can. You have access to the following tools:\n'
 
@@ -36,30 +36,11 @@ llm_model = llm_model.eval()
 
 kernel = CodeKernel()
 
-import lzma
+task_dic = {}
 
-def compress_string(text):
-    # 将字符串编码为字节流
-    encoded_text = text.encode('utf-8')
+DATA_DIR = "/root/autodl-tmp/data/"
 
-    # 使用LZW压缩算法进行压缩
-    compressed_text = lzma.compress(encoded_text)
-
-    # 返回压缩后的字符串
-    return compressed_text.hex()
-
-def decompress_string(compressed_text):
-    # 将压缩的字符串解码为字节流
-    decoded_text = bytes.fromhex(compressed_text)
-
-    # 使用LZW压缩算法进行解压缩
-    decompressed_text = lzma.decompress(decoded_text)
-
-    # 解码为原始字符串
-    original_text = decompressed_text.decode('utf-8')
-
-    # 返回解密后的字符串
-    return original_text
+app = Flask(__name__)
 
 
 def generate_data(query, history=None, past_key_values=None, return_past_key_values=True):
@@ -216,191 +197,21 @@ def generate_stream(
         )
 
 
-def generate_interperter_data(query, history=None):
-    query = query.strip()
-    if history is None:
-        history = []
-    # ["system", "user", "assistant", "observation"]
-    # role = Role.USER # chatglm源代码中role不需要<||>的，比例user就是user，不是<|user|>，这个可以在build_single_message.py的build_single_message函数中看到
-    role = "<|user|>"
-    history.append({"role": role, "content": query})
-
-    for _ in range(5):
-        output_text = ''
-        for response in generate_stream(
-            system=SYSTEM_PROMPT,
-            tools=None,
-            history=history,
-            do_sample=True,
-            max_length=MAX_LENGTH,
-            temperature=temperature,
-            top_p=top_p,
-            stop_sequences=['<|user|>', '<|observation|>'],
-        ): # stop_sequences = ['<|user|>', '<|observation|>']
-            token = response.token
-            if response.token.special:
-                print("=== Output:") 
-                print(output_text)
-
-                match token.text.strip():
-                    case '<|user|>':
-                        history.append({"role": "<|assistant|>", "content": postprocess_text(output_text)})
-                        yield '<|user|>'
-                        # 这里也应该返回一个http请求，表示llm结束了，其实就返回<|user|>就行，客户端那边接收到了之后就表示llm结束了
-                        yield '<|history|>'
-                        yield json.dumps(history)
-                        return
-                    # Initiate tool call
-                    case '<|assistant|>':
-                        history.append({"role": "<|assistant|>", "content": postprocess_text(output_text)})
-                        # 这里要输出到屏幕上，<|assistant|>表示表示llm要继续说话，这里客户那边应该换行
-                        output_text = ''
-                        yield '<|assistant|>'
-                        continue
-                    case '<|observation|>':
-                        code = extract_code(output_text)
-                        print("Code:", code)
-
-                        display_text = output_text.split('interpreter')[-1].strip()
-                        history.append({"role": "<|interpreter|>", "content": postprocess_text(display_text)})
-                        """
-                        Role.INTERPRETER内部其实用的是assistant，可以看str(conversation.get("role"))和
-                        case Role.ASSISTANT | Role.TOOL | Role.INTERPRETER:
-                            return "<|assistant|>"
-                        """
-                        
-                        # history.append({"role": "assistant", "content": postprocess_text(display_text)})
-                        output_text = ''
-
-                        try:
-                            res_type, res = execute(code, kernel)
-                        except Exception as e:
-                            yield '<|error_code|>'
-                            # st.error(f'Error when executing code: {e}')
-                            yield '<|history|>'
-                            yield json.dumps(history)
-                            return
-                        
-                        print("Received:", res_type, res)
-                        if res_type == 'text' and len(res) > TRUNCATE_LENGTH:
-                            res = res[:TRUNCATE_LENGTH] + ' [TRUNCATED]'
-
-                        history.append({"role": "<|observation|>", 
-                                        "content": '[Image]' if res_type == 'image' else postprocess_text(res),
-                                        "image": res if res_type == 'image' else None}) # 其实把image放history里面没有什么作用的，因为llm又不输入image，只输入content
-                        # append_conversation(Conversation(
-                        #     Role.OBSERVATION,
-                        #     '[Image]' if res_type == 'image' else postprocess_text(res),
-                        #     tool=None,
-                        #     image=res if res_type == 'image' else None,
-                        # ), history, markdown_placeholder)
-                        # 如果是图片的话，这里的
-                        # Conversation(role=<Role.OBSERVATION: 6>, content='[Image]', tool=None, image=<PIL.PngImagePlugin.PngImageFile image mode=RGBA size=543x505 at 0x7FC914146860>)
-                        # 这里要输出到屏幕上，<|observation|>表示llm要运行code，http应该返回code的结果，图片或者文字
-                        
-                        output_text = ''
-                        if res_type == 'image':
-                            yield res
-                        else:
-                            yield postprocess_text(res)
-                        break
-                    case _:
-                        # 这里应该返回一个http请求，表示llm错误，然后换行，继续llm开始生成内容
-                        yield '<|unexpected_special_token|>'
-                        # st.error(f'Unexpected special token: {token.text.strip()}')
-                        yield '<|history|>'
-                        yield json.dumps(history)
-                        break
-
-            yield response.token.text
-            output_text += response.token.text  # 这里是+= 号，不是赋值=号，我说这个是为了防止你看错了
-        else:
-            history.append({"role": "<|assistant|>", 
-                            "content": postprocess_text(output_text)})
-            yield '<|history|>'
-            yield json.dumps(history)
-            return
-        
-
-def generate_interperter_data2(query, history=None):
-    if history is None:
-        history = []
-
-    if query is not None:
-        query = query.strip()
-        role = "<|user|>"
-        # history.append({"role": role, "content": "I uploaded the file and put it in /root/ChatGLM3/test.xlsx"})
-        history.append({"role": role, "content": query})
-    else:
-        if len(history) == 0:
-            yield ""
-            return
-        else:
-            # 如果有history，但是没有query，那就接下用llm生成下面的内容，比如收到来自远端的code运行结果等
-            pass
-
-    for _ in range(5):
-        output_text = ''
-        for response in generate_stream(
-            system=SYSTEM_PROMPT,
-            tools=None,
-            history=history,
-            do_sample=True,
-            max_length=MAX_LENGTH,
-            temperature=temperature,
-            top_p=top_p,
-            stop_sequences=['<|user|>', '<|observation|>'],
-        ): # stop_sequences = ['<|user|>', '<|observation|>']
-            token = response.token
-            if response.token.special:
-                print("=== Output:") 
-                print(output_text)
-
-                match token.text.strip():
-                    case '<|user|>':
-                        history.append({"role": "<|assistant|>", "content": postprocess_text(output_text)})
-                        yield '<|user|>'
-                        # 这里也应该返回一个http请求，表示llm结束了，其实就返回<|user|>就行，客户端那边接收到了之后就表示llm结束了
-                        yield '<|history|>'+compress_string(json.dumps(history))
-                        return
-                    # Initiate tool call
-                    case '<|assistant|>':
-                        history.append({"role": "<|assistant|>", "content": postprocess_text(output_text)})
-                        # 这里要输出到屏幕上，<|assistant|>表示表示llm要继续说话，这里客户那边应该换行
-                        output_text = ''
-                        yield '<|assistant|>'
-                        continue
-                    case '<|observation|>':
-                        code = extract_code(output_text)
-                        display_text = output_text.split('interpreter')[-1].strip()
-                        history.append({"role": "<|interpreter|>", "content": postprocess_text(display_text)})
-                        yield '<|history|>'+compress_string(json.dumps(history))
-                        time.sleep(1)
-                        yield "<|observation|>"+code
-                        return
-                    case _:
-                        # 这里应该返回一个http请求，表示llm错误，然后换行，继续llm开始生成内容
-                        yield '<|unexpected_special_token|>'
-                        # st.error(f'Unexpected special token: {token.text.strip()}')
-                        yield '<|history|>'+compress_string(json.dumps(history))
-                        break
-
-            yield response.token.text
-            output_text += response.token.text  # 这里是+= 号，不是赋值=号，我说这个是为了防止你看错了
-        else:
-            history.append({"role": "<|assistant|>", 
-                            "content": postprocess_text(output_text)})
-            yield '<|history|>'+compress_string(json.dumps(history))
-            return
-
-
-
 # 规定，到达这里的history已经是[]格式的了，在这个函数里面通过文件加载history
 def generate_with_id(task_id, query, history=None):
+    global task_dic
     if history is None:
         history = []
 
     if query is not None:
+        if query.strip() == "stop":
+            return
+        if query.strip() == "clear":
+            if os.path.exists(os.path.join(DATA_DIR, task_id+".json")):
+                with open(os.path.join(DATA_DIR, task_id+".json"), "w") as fw:
+                    json.dump({"history": []}, fw)
+            return
+        
         query = query.strip()
         role = "<|user|>"
         # history.append({"role": role, "content": "I uploaded the file and put it in /root/ChatGLM3/test.xlsx"})
@@ -419,6 +230,7 @@ def generate_with_id(task_id, query, history=None):
 
     history = old_history + history
 
+    print("history: ", history)
     for _ in range(5):
         output_text = ''
         for response in generate_stream(
@@ -431,6 +243,14 @@ def generate_with_id(task_id, query, history=None):
             top_p=top_p,
             stop_sequences=['<|user|>', '<|observation|>'],
         ): # stop_sequences = ['<|user|>', '<|observation|>']
+            if task_dic[task_id] == "stop":
+                task_dic[task_id] = "run"
+                history.append({"role": "<|assistant|>", 
+                            "content": postprocess_text(output_text)})
+                with open(os.path.join(DATA_DIR, task_id+".json"), "w") as fw:
+                                json.dump({"history": history}, fw)
+                return
+                
             token = response.token
             if response.token.special:
 
@@ -480,41 +300,12 @@ def generate_with_id(task_id, query, history=None):
             return
 
 
-
-    
-DATA_DIR = "/root/autodl-tmp/data/"
-
-app = Flask(__name__)
-
 @app.route('/stream/chat', methods=['GET', 'POST'])
 def chat():
     data_json = request.json
     query = data_json.get("query")
     history = data_json.get("history")
     return Response(generate_data(query=query, history=history), mimetype='text/event-stream')
-
-
-@app.route('/stream/interpreter', methods=['GET', 'POST'])
-def interpreter():
-    data_json = request.json
-    query = data_json.get("query")
-    history = data_json.get("history")
-    return Response(generate_interperter_data(query=query, history=history), mimetype='text/event-stream')
-
-@app.route('/stream/interpreter2', methods=['GET', 'POST'])
-def interpreter2():
-    data_json = request.json
-    query = data_json.get("query")
-    history = data_json.get("history")
-
-    if isinstance(history, str):
-        history = json.loads(history)
-    elif isinstance(history, list):
-        pass
-    else:
-        history = []
-
-    return Response(generate_interperter_data2(query=query, history=history), mimetype='text/event-stream; charset=utf-8')
 
 @app.route('/generate_task', methods=['GET'])
 def generate_task():
@@ -525,11 +316,13 @@ def generate_task():
     with open(os.path.join(DATA_DIR, task_id+".json"), "w") as fw:
         json.dump(session, fw)
 
+    global task_dic
+    task_dic[task_id] = "run"
+
     return jsonify({"task_id": task_id})
 
-@app.route('/stream/run', methods=['GET', 'POST'])
+@app.route('/stream/run', methods=['POST'])
 def run():
-    print("调用了")
     data_json = request.json
     task_id = data_json.get("task_id")
     query = data_json.get("query")
@@ -541,10 +334,43 @@ def run():
         pass
     else:
         history = []
-    print("history:", history)
     
     # 到这里，history已经是list格式了
+    
     return Response(generate_with_id(task_id=task_id, query=query, history=history), mimetype='text/event-stream; charset=utf-8')
+
+
+@app.route('/stop', methods=['POST'])
+def stop():
+    data_json = request.json
+    task_id = data_json.get("task_id")
+
+    global task_dic
+    task_dic[task_id] = "stop"
+    return jsonify({"status": "200", "message": "clear operation success"})
+
+
+@app.route('/upload', methods=['POST'])
+def upload():
+    data_json = request.json
+    task_id = data_json.get("task_id")
+    upload_file = data_json.get("upload_file")
+
+
+    if (upload_file is not None) and (task_id is not None):
+        # 加载history json文件
+        history_file = os.path.join(DATA_DIR, task_id+".json")
+        with open(history_file, "r") as fr:
+            old_history = json.load(fr)["history"]
+        
+        old_history.append({'role': '<|user|>', 'content': 'I uploaded the file and put it in '+upload_file})
+        # 保存history json文件
+        with open(os.path.join(DATA_DIR, task_id+".json"), "w") as fw:
+            json.dump({"history": old_history}, fw)
+
+        return jsonify({"status": "200", "message": "upload operation success"})
+    else:
+        return jsonify({"status": "400", "message": "task id or upload file is none"})
 
 
 
